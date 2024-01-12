@@ -44,17 +44,19 @@ where
     }
 }
 
-impl<S, A, M> Fit<ArrayBase<S, Ix2>, (HashMap<usize, Vec<usize>>, Vec<usize>)> for HDbscan<A, M>
+impl<A, M> HDbscan<A, M>
 where
     A: AddAssign + DivAssign + FloatCore + FromPrimitive + Sync + Send + TryFrom<u32>,
     <A as std::convert::TryFrom<u32>>::Error: Debug,
-    S: Data<Elem = A>,
     M: Metric<A> + Clone + Sync + Send,
 {
-    fn fit(&mut self, input: &ArrayBase<S, Ix2>) -> (HashMap<usize, Vec<usize>>, Vec<usize>) {
-        if input.is_empty() {
-            return (HashMap::new(), Vec::new());
-        }
+    pub fn compute_condensed<S>(
+        &mut self,
+        input: &ArrayBase<S, Ix2>,
+    ) -> ArrayBase<ndarray::OwnedRepr<(usize, usize, A, usize)>, ndarray::prelude::Dim<[usize; 1]>>
+    where
+        S: Data<Elem = A>,
+    {
         let input = input.as_standard_layout();
         let db = BallTree::new(input.view(), self.metric.clone()).expect("non-empty array");
 
@@ -87,7 +89,23 @@ where
         mst.sort_unstable_by(|a, b| a.2.partial_cmp(&(b.2)).expect("invalid distance"));
         let sorted_mst = Array1::from_vec(mst);
         let labeled = label(sorted_mst);
-        let condensed = Array1::from_vec(condense_mst(labeled.view(), self.min_cluster_size));
+        Array1::from_vec(condense_mst(labeled.view(), self.min_cluster_size))
+    }
+}
+
+impl<S, A, M> Fit<ArrayBase<S, Ix2>, (HashMap<usize, Vec<usize>>, Vec<usize>)> for HDbscan<A, M>
+where
+    A: AddAssign + DivAssign + FloatCore + FromPrimitive + Sync + Send + TryFrom<u32>,
+    <A as std::convert::TryFrom<u32>>::Error: Debug,
+    S: Data<Elem = A>,
+    M: Metric<A> + Clone + Sync + Send,
+{
+    fn fit(&mut self, input: &ArrayBase<S, Ix2>) -> (HashMap<usize, Vec<usize>>, Vec<usize>) {
+        if input.is_empty() {
+            return (HashMap::new(), Vec::new());
+        }
+
+        let condensed = self.compute_condensed(input);
         find_clusters(&condensed.view())
     }
 }
